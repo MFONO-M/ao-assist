@@ -1,61 +1,8 @@
-"""Génère le notebook AO-Assist à partir des cellules ci-dessous et des fichiers de data/.
-Les cellules marquées pure=True ne dépendent d'aucun modèle : elles sont aussi exportées
-dans tests/cellules_pures.py pour être testées hors Colab."""
-import json
-from pathlib import Path
-
-RACINE = Path(__file__).parent
-cells = []
-
-
-def md(s):
-    cells.append({"type": "markdown", "src": s.strip("\n")})
-
-
-def code(s, pure=False):
-    cells.append({"type": "code", "src": s.strip("\n"), "pure": pure})
-
-
-# ---------------------------------------------------------------- 0. Intro
-md(r'''
-# ♻️ AO-Assist — un assistant IA pour répondre aux appels d'offres de gestion des déchets industriels
-
-**Le problème.** Répondre à un appel d'offres industriel, c'est lire un DCE de dizaines de pages, en extraire chaque exigence, vérifier ce que l'entreprise sait faire, dimensionner les contenants et les rotations, chiffrer, puis rédiger un mémoire technique. C'est long, répétitif, et une exigence oubliée peut coûter le marché.
-
-**Ce que fait ce notebook**, de bout en bout, sur un cas fictif complet (le CCTP d'une fonderie et la base de connaissances d'un prestataire déchets) :
-
-| Étape | Résultat | Technique |
-|---|---|---|
-| 1. Analyse du DCE | liste structurée des exigences | LLM + sortie structurée (Pydantic) |
-| 2. Matrice de conformité | Conforme / Partiel / Non couvert, avec sources | RAG hybride (BM25 + embeddings + reranking) |
-| 3. Dimensionnement et chiffrage | rotations, contenants, budget, taux de valorisation | calcul Python déterministe + **Excel avec formules** |
-| 4. Assistant conversationnel | réponses sourcées pour le commercial | agent LangChain à 3 outils |
-| 5. Brouillon de mémoire technique | document Word structuré selon l'article 17 du CCTP | génération ancrée + vérification des citations |
-| 6. Évaluation | Recall@k, MRR, couverture, détection des écarts, citations valides | jeu de test annoté |
-
-**Principes de conception**
-- **100 % local et gratuit** : Ollama + modèles open source. Aucun document ne quitte la machine, un point clé pour des offres commerciales confidentielles.
-- **Les chiffres ne viennent jamais du LLM** : un modèle de langage est mauvais en calcul, le dimensionnement est donc fait par du code et exposé à l'agent comme un outil.
-- **Tout est sourcé et vérifiable** : chaque affirmation cite l'article du CCTP `[ART-xx]` ou la fiche interne `[Bxx-yy]`, et les citations sont contrôlées automatiquement.
-- **Mesurer plutôt que croire** : chaque brique est évaluée sur un jeu de test.
-
-> ⚠️ Toutes les données (entreprise cliente, prestataire, tonnages, prix) sont **fictives** et créées pour la démonstration.
-
-**Avant de commencer** : *Exécution → Modifier le type d'exécution → GPU T4*, puis exécuter les cellules dans l'ordre. Durée d'exécution complète : environ 15 à 25 minutes sur le GPU gratuit.
-''')
-
-# ---------------------------------------------------------------- 1. Install
-md("## 1. Installation")
-code(r'''
 # numpy, pandas, matplotlib, openpyxl et sentence-transformers sont déjà fournis par Colab :
 # on ne les met pas à jour (sinon conflit de versions et redémarrage obligatoire).
-%pip install -q -U langchain langchain-ollama ollama python-docx
-''')
-code(r'''
-!apt-get -qq install -y zstd > /dev/null
-!curl -fsSL https://ollama.com/install.sh | sh
-''')
-code(r'''
+
+
+
 import subprocess, time, requests
 
 subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -68,34 +15,11 @@ for _ in range(60):
         time.sleep(2)
 else:
     print("❌ Ollama ne répond pas : relancez cette cellule.")
-''')
-code(r'''
-!ollama pull qwen2.5:7b
-!ollama pull bge-m3
-''')
 
-# ---------------------------------------------------------------- 2. Data
-md(r'''
-## 2. Les données (fictives)
 
-- `data/dce/` : le **CCTP** du client, *Fonderies du Val d'Oise* (17 articles, 9 flux de déchets, 2 339 t/an).
-- `data/base/` : la **base de connaissances** du prestataire, *Cyclea Environnement* : références, contenants, filières, traçabilité, organisation, veille réglementaire.
-- `data/base/grille_dimensionnement.csv` : charges utiles, prix unitaires et taux de valorisation par flux.
 
-La base contient volontairement quelques **écarts** avec le CCTP (délai de rotation, nombre de sessions de sensibilisation, calcul du CO2 évité, certification ISO 45001), pour vérifier que l'assistant sait les détecter.
-''')
-code("!mkdir -p data/dce data/base sorties")
-for chemin in sorted((RACINE / "data").rglob("*")):
-    if chemin.is_file():
-        rel = chemin.relative_to(RACINE).as_posix()
-        code(f"%%writefile {rel}\n" + chemin.read_text(encoding="utf-8").rstrip("\n"))
 
-# ---------------------------------------------------------------- 3. Settings
-md(r'''
-## 3. Réglages
-Tous les paramètres au même endroit : pour une expérience, on n'en change **qu'un seul à la fois**.
-''')
-code(r'''
+
 MODELE_LLM = "qwen2.5:7b"                   # expérience possible : "qwen2.5:14b" (plus lent, plus fiable)
 MODELE_EMBEDDING = "bge-m3"                 # même modèle pour indexer et pour interroger
 MODELE_RERANKER = "BAAI/bge-reranker-v2-m3"
@@ -112,17 +36,7 @@ OBJECTIF_VALORISATION = 0.85  # exigence de l'article 6 du CCTP
 ARTICLES_A_ANALYSER = [f"ART-{n:02d}" for n in range(2, 14)]   # articles porteurs d'exigences
 NON_TROUVE = "Je n'ai pas trouvé cette information dans les documents."
 TEMPS = {}                    # durée de chaque étape, pour le bilan
-''', pure=True)
 
-# ---------------------------------------------------------------- 4. Chunking
-md(r'''
-## 4. Découpage des documents
-
-Un CCTP est structuré en **articles** : on découpe donc par unité documentaire, un article ou une section par morceau, plutôt que tous les N mots. Chaque morceau reçoit :
-- un **identifiant citable** : `ART-06` pour l'article 6 du CCTP, `B03-02` pour la section 2 de la fiche interne n°3 ;
-- un **préfixe de contexte** (« titre du document — titre de la section ») utilisé pour la recherche, pour qu'un morceau isolé garde son sujet.
-''')
-code(r'''
 import re
 from pathlib import Path
 
@@ -152,23 +66,7 @@ PAR_ID = {c["id"]: c for c in CHUNKS}
 print(f"{len(CHUNKS)} morceaux : {sum(c['corpus'] == 'dce' for c in CHUNKS)} articles du CCTP, "
       f"{sum(c['corpus'] == 'base' for c in CHUNKS)} sections de la base interne")
 print(PAR_ID["ART-06"]["texte_index"][:300])
-''', pure=True)
 
-# ---------------------------------------------------------------- 5. Retrieval
-md(r'''
-## 5. Moteur de recherche hybride
-
-Deux recherches complémentaires, puis une fusion et un tri final :
-- **BM25** (mots-clés), adapté au français : minuscules, accents retirés, mots vides supprimés, pluriels ramenés au singulier. Imbattable sur les codes déchets, les normes (« ISO 14001 ») et les chiffres.
-- **Dense** (sens) avec **bge-m3**, multilingue : trouve « vider une benne » quand le texte dit « rotation d'un contenant ».
-- **Fusion RRF** (k = 60), puis **reranking** par un cross-encoder qui relit chaque paire question / passage.
-- **Filtre par corpus** avant la recherche : on interroge soit le DCE du client, soit notre base interne, soit les deux.
-
-Le corpus étant fixe, les vecteurs des morceaux sont calculés **une seule fois** (indexation hors ligne).
-
-Les quatre stratégies (`bm25`, `dense`, `hybride`, `rerank`) sont comparées en section 13, et le réglage `MODE_RECHERCHE` retient **celle qui gagne sur la mesure**, pas celle qui paraît la plus sophistiquée. Sur ce corpus court et bien rédigé, la recherche dense seule obtient le meilleur score, pour un temps de réponse inférieur à la milliseconde.
-''')
-code(r'''
 import unicodedata
 import numpy as np
 
@@ -209,8 +107,7 @@ def fusion_rrf(*classements, k=60):
 
 TOKENS = [normaliser(c["texte_index"]) for c in CHUNKS]
 print(normaliser("Les pénalités de retard des rotations"))
-''', pure=True)
-code(r'''
+
 import ollama
 from sentence_transformers import CrossEncoder
 
@@ -230,8 +127,7 @@ VECTEURS = embed([c["texte_index"] for c in CHUNKS])          # indexation hors 
 reranker = CrossEncoder(MODELE_RERANKER, max_length=512)
 TEMPS["indexation"] = time.perf_counter() - t0
 print(f"Index prêt : {VECTEURS.shape[0]} vecteurs de dimension {VECTEURS.shape[1]} ✅")
-''')
-code(r'''
+
 def rechercher(requete, corpus=None, mode=None, k=None):
     """corpus : 'dce', 'base' ou None (les deux). Renvoie les k meilleurs morceaux."""
     mode, k = mode or MODE_RECHERCHE, k or TOP_K
@@ -261,22 +157,7 @@ for p in rechercher("en combien de temps faut-il vider une benne ?", corpus="dce
     print(f"▶ [{p['id']}] {p['section']}")
 for p in rechercher("délai de rotation standard", corpus="base", k=2):
     print(f"▶ [{p['id']}] {p['section']}")
-''')
 
-# ---------------------------------------------------------------- 6. Sizing
-md(r'''
-## 6. Dimensionnement et chiffrage (sans LLM)
-
-Le gisement est lu **directement dans le tableau de l'article 4** du CCTP, puis croisé avec la grille interne. Pour chaque flux :
-
-- rotations / an = ⌈ tonnage ÷ (charge utile × taux de remplissage) ⌉
-- contenants = au moins 1, un de plus dès qu'on dépasse 2 rotations par semaine
-- budget = location × 12 × contenants + rotations × prix de rotation + tonnage × prix de traitement (un prix négatif est une **reprise de matière**, donc une recette)
-- taux de valorisation global calculé sur les déchets **non dangereux**, comme l'exige l'article 6.
-
-C'est du code, donc c'est exact, reproductible et vérifiable : le LLM ne fera qu'**appeler** ce calcul.
-''')
-code(r'''
 import math
 import pandas as pd
 
@@ -321,8 +202,7 @@ COLONNES_DIM = ["flux", "tonnage_t", "contenant", "contenants", "rotations_an", 
 display(DIM[COLONNES_DIM])
 print("Standard (48 h) :", synthese(DIM))
 print("Option 24 h     :", synthese(DIM_PRIORITE))
-''', pure=True)
-code(r'''
+
 # Tests unitaires : le calcul doit rester juste quand on modifie le code
 assert len(GISEMENT) == 9 and GISEMENT.tonnage_t.sum() == 2339
 assert DIM.set_index("flux").loc["Métaux ferreux", "rotations_an"] == 91        # 650 / (8 × 0,9) = 90,3 -> 91
@@ -331,15 +211,7 @@ assert DIM.set_index("flux").loc["Métaux ferreux", "cout_traitement"] < 0      
 assert synthese(DIM)["objectif_85_respecte"]
 assert synthese(DIM_PRIORITE)["budget_annuel_eur"] > synthese(DIM)["budget_annuel_eur"]
 print("Tests du dimensionnement : OK ✅")
-''', pure=True)
 
-# ---------------------------------------------------------------- 7. LLM
-md(r'''
-## 7. Le modèle de langage
-
-**Qwen 2.5 7B** via Ollama, à température 0 (on veut des réponses stables, pas de créativité). Pour l'extraction et l'évaluation, on lui impose une **sortie structurée** décrite par un schéma Pydantic : on récupère des objets Python validés, pas du texte libre à parser.
-''')
-code(r'''
 from typing import List, Literal
 from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama
@@ -358,15 +230,7 @@ def appel_structure(schema, systeme, contenu, essais=2):
     return None
 
 print(MODELE.invoke("Réponds en un mot : quelle est la capitale de la France ?").content)
-''')
 
-# ---------------------------------------------------------------- 8. Extraction
-md(r'''
-## 8. Étape 1 — Extraire les exigences du DCE
-
-Chaque article du CCTP est lu par le LLM, qui renvoie une liste d'exigences **typées** : catégorie, obligatoire ou souhaitée, valeur cible (« ≥ 85 % », « 24 h »…). Un article = un appel, ce qui garde un contexte court et précis.
-''')
-code(r'''
 from tqdm.auto import tqdm
 
 CATEGORIES = Literal["Prestations et matériel", "Valorisation", "Déchets dangereux", "Délais",
@@ -406,15 +270,7 @@ EXIGENCES = pd.DataFrame(lignes)
 EXIGENCES.insert(0, "id", [f"EX-{i:02d}" for i in range(1, len(EXIGENCES) + 1)])
 print(f"{len(EXIGENCES)} exigences extraites en {TEMPS['extraction']:.0f} s")
 EXIGENCES
-''')
 
-# ---------------------------------------------------------------- 9. Compliance
-md(r'''
-## 9. Étape 2 — Matrice de conformité
-
-Pour chaque exigence, on cherche dans **notre base interne** ce qui y répond, puis le LLM conclut : **Conforme**, **Partiel** ou **Non couvert**, avec une justification, une proposition de réponse pour le mémoire et ses sources. Une vérification automatique contrôle que chaque source citée fait bien partie des passages fournis.
-''')
-code(r'''
 class Evaluation(BaseModel):
     # l'analyse est demandée AVANT le statut : le modèle raisonne, puis conclut
     justification: str = Field(description="Une ou deux phrases : ce que disent nos passages, comparé à l'exigence, valeur contre valeur")
@@ -459,26 +315,12 @@ MATRICE = EXIGENCES.merge(pd.DataFrame(lignes), on="id")
 print(MATRICE.statut.value_counts().to_string())
 print(f"Citations valides : {MATRICE.citations_valides.mean():.0%}")
 MATRICE[["id", "article", "intitule", "valeur_cible", "statut", "justification", "sources"]]
-''')
-code(r'''
+
 # Les points de vigilance : ce que le commercial doit arbitrer avant de répondre
 VIGILANCE = MATRICE[MATRICE.statut != "Conforme"]
 for _, r in VIGILANCE.iterrows():
     print(f"⚠️ [{r.article}] {r.intitule} ({r.valeur_cible or '-'}) -> {r.statut}\n   {r.justification}\n")
-''')
 
-# ---------------------------------------------------------------- 10. Agent
-md(r'''
-## 10. Étape 3 — L'assistant conversationnel
-
-Chaque question est d'abord enrichie d'un **contexte** récupéré automatiquement dans le DCE et dans notre base : un modèle de 7 milliards de paramètres oublie parfois de chercher, et la mesure l'a montré. L'agent **décide** ensuite s'il a besoin d'aller plus loin avec ses outils :
-- `chercher_dce` : ce que demande le client ;
-- `chercher_base` : ce que nous savons faire ;
-- `dimensionnement` : le calcul exact des rotations, contenants et budgets.
-
-Il cite ses sources, répond « je n'ai pas trouvé » plutôt que d'inventer, et garde la mémoire de la conversation.
-''')
-code(r'''
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
@@ -558,29 +400,17 @@ def demander(question, conversation="demo", details=True):
     return messages[-1].content
 
 print("Assistant prêt ✅")
-''')
-code(r'''
+
 reponse = demander("Notre délai de rotation standard respecte-t-il le CCTP ? Sinon, que pouvons-nous proposer ?")
-''')
-code(r'''
+
 reponse = demander("Combien de rotations par an pour les métaux ferreux, et quel budget ?")
-''')
-code(r'''
+
 # Question de suivi : l'agent doit comprendre « ce flux » grâce à la mémoire de conversation
 reponse = demander("Et si le tonnage de ce flux augmente de 20 % ?")
-''')
-code(r'''
+
 # Question sans réponse dans les documents : l'agent ne doit pas inventer
 reponse = demander("Quel est le budget prévisionnel du client pour ce marché ?", conversation="piege")
-''')
 
-# ---------------------------------------------------------------- 11. Memoire
-md(r'''
-## 11. Étape 4 — Brouillon du mémoire technique (Word)
-
-Le plan suit **exactement** l'article 17 du CCTP. Pour chaque partie, on récupère les exigences du client et nos réponses, on génère un texte sourcé, puis on vérifie ses citations. Le document Word contient aussi le tableau de dimensionnement et les points de vigilance. C'est un **brouillon** : il fait gagner le premier jet, la relecture humaine reste indispensable.
-''')
-code(r'''
 SECTIONS_MEMOIRE = [
     ("Présentation du candidat et références", "présentation du candidat références", "présentation entreprise références fonderie"),
     ("Moyens humains et matériels affectés au site", "moyens humains matériels responsable de compte", "moyens humains chauffeurs flotte véhicules"),
@@ -621,8 +451,7 @@ TEMPS["memoire"] = time.perf_counter() - t0
 
 for s in MEMOIRE:
     print(f"## {s['titre']}  {'✅' if s['citations_valides'] else '⚠️ citations à vérifier'}\n{s['texte']}\n")
-''')
-code(r'''
+
 from docx import Document
 from docx.shared import Pt, RGBColor
 
@@ -658,20 +487,7 @@ def ecrire_memoire(chemin):
 
 ecrire_memoire("sorties/memoire_technique_brouillon.docx")
 print("sorties/memoire_technique_brouillon.docx ✅")
-''')
 
-# ---------------------------------------------------------------- 12. Excel
-md(r'''
-## 12. Étape 5 — Le livrable Excel pour le Bureau d'Études
-
-Un classeur prêt à l'emploi :
-- **Dimensionnement** : un abaque avec de **vraies formules Excel**. On modifie un tonnage ou un prix (en bleu) et tout se recalcule, sans Python.
-- **Matrice de conformité** : exigence par exigence, statut, justification, réponse proposée et sources.
-- **Synthèse** : les indicateurs clés de l'offre.
-
-Ce format alimente directement un tableau de bord Power BI.
-''')
-code(r'''
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -764,8 +580,7 @@ def exporter_excel(chemin, dim, matrice):
 
 exporter_excel("sorties/offre_FVO.xlsx", DIM, MATRICE)
 print("sorties/offre_FVO.xlsx ✅")
-''')
-code(r'''
+
 import matplotlib.pyplot as plt
 
 def tableau_de_bord(chemin):
@@ -799,25 +614,7 @@ def tableau_de_bord(chemin):
     plt.show()
 
 tableau_de_bord("sorties/tableau_de_bord.png")
-''')
 
-# ---------------------------------------------------------------- 13. Evaluation
-md(r'''
-## 13. Évaluation
-
-Un assistant qui « a l'air de marcher » ne suffit pas. On mesure chaque brique séparément, pour savoir **où** se trouvent les erreurs :
-
-| Brique | Question | Métrique |
-|---|---|---|
-| Recherche | le bon passage est-il trouvé ? | Recall@1, Recall@3, MRR, ms/requête, pour 4 modes |
-| Extraction | les exigences clés sont-elles toutes extraites ? | couverture |
-| Conformité | les écarts connus sont-ils détectés ? | exactitude du statut |
-| Assistant | les réponses sont-elles justes, sourcées, et honnêtes sur les questions sans réponse ? | taux de réussite |
-| Citations | chaque source citée existe-t-elle ? | taux de citations valides |
-
-Les questions de test sont **reformulées comme un commercial les poserait**, pas copiées du texte, pour ne pas avantager artificiellement la recherche par mots-clés.
-''')
-code(r'''
 QUESTIONS_RECHERCHE = [
     ("Combien de temps dure le contrat et peut-il être prolongé ?", "ART-02"),
     ("À quelles heures les camions peuvent-ils entrer sur le site ?", "ART-03"),
@@ -862,8 +659,7 @@ for mode in ["bm25", "dense", "hybride", "rerank"]:
                              "ms/requête": np.mean(durees)})
 SCORES_RECHERCHE = pd.DataFrame(SCORES_RECHERCHE).round(3)
 SCORES_RECHERCHE
-''')
-code(r'''
+
 # Exigences clés du CCTP (annotées à la main) et statut attendu face à notre base interne
 EXIGENCES_CLES = [
     # (article, motif cherché dans l'exigence extraite, statut attendu ou None)
@@ -902,8 +698,7 @@ EXACTITUDE_STATUT = avec_statut["statut correct"].mean()
 print(f"Couverture des exigences clés : {COUVERTURE:.0%}")
 print(f"Statuts de conformité corrects : {EXACTITUDE_STATUT:.0%} ({avec_statut['statut correct'].sum()}/{len(avec_statut)})")
 EVAL_EXTRACTION
-''')
-code(r'''
+
 QUESTIONS_AGENT = [
     ("Quel est le plafond des pénalités ?", r"10 ?%"),
     ("Quel poids a le prix dans la notation des offres ?", r"40 ?%"),
@@ -929,15 +724,7 @@ TEMPS["evaluation_agent"] = time.perf_counter() - t0
 EVAL_AGENT = pd.DataFrame(lignes)
 print(f"Réponses correctes de l'assistant : {EVAL_AGENT.correct.mean():.0%}")
 EVAL_AGENT
-''')
 
-# ---------------------------------------------------------------- 14. Results
-md(r'''
-## 14. Bilan chiffré
-
-Tous les chiffres ci-dessous viennent **de votre exécution** : ce sont eux qu'il faut citer, pas des valeurs recopiées ailleurs.
-''')
-code(r'''
 cit = list(MATRICE.citations_valides) + [s["citations_valides"] for s in MEMOIRE]
 meilleur = SCORES_RECHERCHE.sort_values(["Recall@3", "MRR"], ascending=False).iloc[0]
 BILAN = {
@@ -954,44 +741,3 @@ BILAN = {
 }
 for k, v in BILAN.items():
     print(f"{k:<45} {v}")
-''')
-md(r'''
-## 15. Limites et suite
-
-- **Données fictives et jeu de test réduit** (20 questions de recherche, 17 exigences clés, 8 questions d'assistant) : à agrandir avec de vrais DCE anonymisés avant toute conclusion.
-- **Le LLM peut se tromper** sur un statut de conformité : la matrice est une aide à la décision, relue par le Bureau d'Études, jamais un verdict automatique.
-- **Un modèle de 7B** reste limité sur les DCE longs : un modèle plus grand ou un découpage plus fin des articles sont des pistes à mesurer.
-- **Vrais DCE** : ajouter le parsing de PDF (Docling, PyMuPDF4LLM) et les tableaux de prix (BPU, DPGF).
-
-**Transposition dans l'écosystème Microsoft 365** : la base de connaissances devient une bibliothèque **SharePoint**, l'assistant un agent **Copilot Studio** avec ces documents comme sources de connaissance, l'extraction et l'export de la matrice un flux **Power Automate**, et le classeur Excel la source d'un tableau de bord **Power BI** de suivi des appels d'offres. La logique (extraire, comparer, sourcer, calculer par du code, mesurer) reste la même.
-''')
-
-# ---------------------------------------------------------------- write
-nb = {
-    "cells": [
-        {"cell_type": "markdown", "metadata": {}, "source": c["src"].splitlines(keepends=True)}
-        if c["type"] == "markdown" else
-        {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [],
-         "source": c["src"].splitlines(keepends=True)}
-        for c in cells
-    ],
-    "metadata": {"accelerator": "GPU", "colab": {"provenance": [], "gpuType": "T4"},
-                 "kernelspec": {"name": "python3", "display_name": "Python 3"},
-                 "language_info": {"name": "python"}},
-    "nbformat": 4, "nbformat_minor": 0,
-}
-(RACINE / "AO_Assist.ipynb").write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
-
-# export des cellules de code pour vérification (syntaxe complète + cellules pures exécutables)
-tout, pures = [], []
-for c in cells:
-    if c["type"] != "code" or c["src"].startswith("%%writefile"):
-        continue
-    src = "\n".join(l for l in c["src"].splitlines() if not l.lstrip().startswith(("!", "%")))
-    tout.append(src)
-    if c.get("pure"):
-        pures.append(src)
-(RACINE / "tests").mkdir(exist_ok=True)
-(RACINE / "tests" / "toutes_cellules.py").write_text("\n\n".join(tout), encoding="utf-8")
-(RACINE / "tests" / "cellules_pures.py").write_text("\n\n".join(pures), encoding="utf-8")
-print(f"{len(cells)} cellules écrites")

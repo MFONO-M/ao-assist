@@ -26,7 +26,7 @@ Répondre à un appel d'offres industriel prend des jours : lire un CCTP article
 - **Les chiffres ne viennent jamais du LLM.** Le dimensionnement est du code Python testé, exposé à l'agent comme un outil. Le classeur Excel reprend le même calcul en formules, modifiables sans Python.
 - **Tout est sourcé.** Chaque affirmation cite l'article du CCTP `[ART-07]`, la fiche interne `[B03-02]` ou le calcul `[DIM]`, et les citations sont contrôlées automatiquement.
 - **Le droit de dire « je ne sais pas ».** L'assistant répond « je n'ai pas trouvé » plutôt que d'inventer, et le mémoire signale `[À COMPLÉTER]` ce que la base ne couvre pas.
-- **Recherche hybride.** BM25 adapté au français (codes déchets, normes, chiffres) + embeddings multilingues bge-m3 (reformulations), fusion RRF, reranking par cross-encoder, filtre par corpus (DCE client ou base interne).
+- **Une recherche choisie par la mesure.** Quatre stratégies sont comparées sur 20 questions reformulées : BM25 adapté au français, embeddings multilingues bge-m3, hybride (fusion RRF) et reranking par cross-encoder. Sur ce corpus, la recherche dense seule gagne, et c'est elle qui est retenue. Un filtre par corpus sépare le DCE du client et la base interne.
 - **Découpage par article.** Un CCTP est structuré : chaque article est une unité citable.
 - **Confidentialité.** Ollama, Qwen 2.5 et bge-m3 tournent en local : aucun document commercial ne quitte la machine.
 - **Mesurer plutôt que croire.** Chaque brique est évaluée séparément, avec des questions reformulées comme un commercial les poserait.
@@ -40,7 +40,7 @@ Résultats obtenus sur le cas fictif, GPU T4 de Google Colab :
 | Exigences extraites du CCTP | _à compléter_ |
 | Couverture des exigences clés | _à compléter_ |
 | Statuts de conformité corrects | _à compléter_ |
-| Recall@3 de la recherche (rerank) | _à compléter_ |
+| Recall@3 de la recherche (meilleur mode) | _à compléter_ |
 | Réponses correctes de l'assistant | _à compléter_ |
 | Citations valides | _à compléter_ |
 | Durée analyse + matrice + mémoire | _à compléter_ |

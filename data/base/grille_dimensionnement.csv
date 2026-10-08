@@ -1,0 +1,10 @@
+flux,contenant,charge_utile_t,location_mois_eur,rotation_eur,traitement_eur_t,taux_valorisation,dangereux
+Carton et papier,Compacteur 20 m³,4.0,320,185,-35,0.98,non
+Bois (palettes et emballages),Benne 30 m³,5.0,95,175,45,0.95,non
+Métaux ferreux,Benne 15 m³,8.0,90,165,-180,0.99,non
+Déchets d'activités économiques en mélange,Compacteur 20 m³,5.0,320,185,138,0.75,non
+Plastiques (films et housses),Compacteur 20 m³,2.0,320,185,25,0.90,non
+Sables de fonderie usagés,Benne 15 m³,14.0,90,165,42,0.92,non
+Huiles usagées,GRV 1 000 L + rétention,0.9,25,120,60,0.98,oui
+Emballages souillés,Caisse-palette étanche 1 m³,0.3,18,95,460,0.00,oui
+DEEE,Caisse-palette 1 m³,0.2,15,70,0,0.85,non
