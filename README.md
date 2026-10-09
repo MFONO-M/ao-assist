@@ -33,19 +33,36 @@ Répondre à un appel d'offres industriel prend des jours : lire un CCTP article
 
 ## Résultats
 
-Résultats obtenus sur le cas fictif, GPU T4 de Google Colab :
+Mesurés sur le cas fictif, avec Qwen 2.5 7B sur le GPU T4 gratuit de Google Colab :
 
 | Indicateur | Valeur |
 |---|---|
-| Exigences extraites du CCTP | _à compléter_ |
-| Couverture des exigences clés | _à compléter_ |
-| Statuts de conformité corrects | _à compléter_ |
-| Recall@3 de la recherche (meilleur mode) | _à compléter_ |
-| Réponses correctes de l'assistant | _à compléter_ |
-| Citations valides | _à compléter_ |
-| Durée analyse + matrice + mémoire | _à compléter_ |
+| Exigences extraites du CCTP | 45 |
+| Couverture des exigences clés annotées | 100 % |
+| Statuts de conformité corrects (cas annotés) | 92 % (11/12) |
+| Recall@3 de la recherche (dense) | 100 %, MRR 0,86 |
+| Réponses correctes de l'assistant | 62 % (5/8) |
+| Citations valides (matrice + mémoire) | 89 % |
+| Durée analyse + matrice + mémoire | 12,8 min |
 
-Le tableau est rempli par la dernière cellule du notebook (section 14).
+![Tableau de bord](assets/tableau_de_bord.png)
+
+### Ce que la mesure a changé
+
+Le projet a été amélioré en trois itérations, chacune guidée par les chiffres de la précédente :
+
+| Indicateur | v1 | v2 | v3 |
+|---|---|---|---|
+| Couverture des exigences clés | 82 % | 100 % | 100 % |
+| Statuts de conformité corrects | 50 % | 25 % | **92 %** |
+| Réponses correctes de l'assistant | 25 % | 75 % | 62 % |
+| Citations valides | 9 % | 98 % | 89 % |
+
+- **v1 → v2** : l'assistant oubliait souvent de chercher avant de répondre. Chaque question reçoit maintenant un contexte récupéré automatiquement. Un bug de vérification des citations a aussi été corrigé.
+- **v2 → v3** : demander directement au modèle « Conforme, Partiel ou Non couvert ? » donnait des écarts partout. Il répond désormais à des questions factuelles simples, et le statut est déduit par une règle en code.
+- **Recherche** : sur 20 questions reformulées, la recherche dense seule (Recall@3 = 100 %) bat BM25 (55 %), l'hybride (95 %) et le reranking (100 %, mais 1 000 fois plus lent). C'est donc elle qui est retenue.
+
+**Limites observées** : l'assistant n'appelle pas toujours l'outil de calcul et a inventé une réponse sur une question piège (1 cas sur 2). Avec 8 questions, ce score varie d'une exécution à l'autre : il faut un jeu de test plus grand pour conclure.
 
 ## Lancer le projet
 
