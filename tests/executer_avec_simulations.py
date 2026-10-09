@@ -43,9 +43,10 @@ class FauxStructure:
             return self.schema(exigences=[Ex(intitule=p[:40], description=p, categorie="Délais",
                                              niveau="souhaité" if "appréci" in p else "obligatoire",
                                              valeur_cible="") for p in phrases[:4]])
-        if nom == "Evaluation":
+        if nom == "Analyse":
             ids = re.findall(r"\[(B\d{2}-\d{2})\]", contenu)
-            return self.schema(statut="Partiel" if "24" in contenu.split("PASSAGES")[0] else "Conforme",
+            return self.schema(ce_que_disent_nos_passages="simulation", sujet_traite=True,
+                               ecart="valeur moins bonne" if "24" in contenu.split("PASSAGES")[0] else "aucun",
                                justification="simulation", reponse_proposee=f"Nous répondons [{ids[0]}].",
                                sources=ids[:1])
         raise ValueError(nom)
